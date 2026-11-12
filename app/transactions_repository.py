@@ -1,5 +1,7 @@
+from datetime import date
+
 from .database import get_connection
-from .schemas import Transaction, TransactionCreate
+from .schemas import Transaction, TransactionCreate, TransactionSummary
 
 
 def _to_transaction(row) -> Transaction:
@@ -31,17 +33,48 @@ def create_transaction(transaction: TransactionCreate) -> Transaction:
     return _to_transaction(row)
 
 
-def list_transactions() -> list[Transaction]:
+def list_transactions(category: str | None = None) -> list[Transaction]:
+    query = """
+        SELECT id, merchant, amount, transaction_date, category
+        FROM transactions
+    """
+    parameters = ()
+
+    if category is not None:
+        query += " WHERE category = %s"
+        parameters = (category,)
+
+    query += " ORDER BY id"
+
     with get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, merchant, amount, transaction_date, category
-            FROM transactions
-            ORDER BY id
-            """
-        ).fetchall()
+        rows = connection.execute(query, parameters).fetchall()
 
     return [_to_transaction(row) for row in rows]
+
+
+def summarize_month(year: int, month: int) -> TransactionSummary:
+    start_date = date(year, month, 1)
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(amount), 0)
+            FROM transactions
+            WHERE transaction_date >= %s AND transaction_date < %s
+            """,
+            (start_date, next_month),
+        ).fetchone()
+
+    return TransactionSummary(
+        year=year,
+        month=month,
+        transaction_count=row[0],
+        total_amount=row[1],
+    )
 
 
 def get_transaction(transaction_id: int) -> Transaction | None:

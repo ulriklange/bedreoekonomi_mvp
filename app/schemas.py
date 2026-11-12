@@ -13,3 +13,10 @@ class TransactionCreate(BaseModel):
 
 class Transaction(TransactionCreate):
     id: int
+
+
+class TransactionSummary(BaseModel):
+    year: int
+    month: int
+    transaction_count: int
+    total_amount: Decimal

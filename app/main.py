@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from .database import lifespan
-from .schemas import Transaction, TransactionCreate
+from .schemas import Transaction, TransactionCreate, TransactionSummary
 from . import transactions_repository
 
 
@@ -23,8 +23,22 @@ def create_transaction(transaction: TransactionCreate) -> Transaction:
 
 
 @app.get("/transactions", response_model=list[Transaction], tags=["transactions"])
-def list_transactions() -> list[Transaction]:
-    return transactions_repository.list_transactions()
+def list_transactions(
+    category: str | None = Query(default=None, min_length=1),
+) -> list[Transaction]:
+    return transactions_repository.list_transactions(category)
+
+
+@app.get(
+    "/transactions/summary",
+    response_model=TransactionSummary,
+    tags=["transactions"],
+)
+def get_monthly_summary(
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+) -> TransactionSummary:
+    return transactions_repository.summarize_month(year, month)
 
 
 @app.get(

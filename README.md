@@ -30,6 +30,8 @@ python -m uvicorn app.main:app --reload
 
 Ved opstart opretter appen tabellen `transactions`, hvis den ikke findes.
 
+Databaseopsætning og forbindelser ligger i `app/database.py`. Pydantic-modeller til datavalidering ligger i `app/schemas.py`, og HTTP-ruterne ligger i `app/main.py`.
+
 - Health check: http://127.0.0.1:8000/health
 - Interaktiv API-dokumentation: http://127.0.0.1:8000/docs
 - Alternativ dokumentation: http://127.0.0.1:8000/redoc

@@ -38,6 +38,18 @@ Databaseforbindelsen ligger i `app/database.py`, Pydantic-modeller til datavalid
 
 Beløb gemmes med bankens fortegn: negative beløb er udgifter, positive beløb er indtægter. Månedsopsummeringen viser udgifter, indtægter og netto separat.
 
-Brug `GET /categories` til at hente bankens underkategorier og `GET /category-hierarchy` til at hente underkategorier grupperet under deres hovedkategori. `POST /transactions` gemmer en transaktion ved at angive dens underkategori i feltet `category`; API'et udleder hovedkategorien. Transaktionssvar indeholder derfor både `main_category` og `category`.
+Brug `GET /categories` til at hente bankens underkategorier og `GET /category-hierarchy` til at hente underkategorier grupperet under deres hovedkategori. `POST /transactions` gemmer en transaktion ved at angive dens underkategori i feltet `category`; API'et sætter den tilhørende hovedkategori. Lakebase og transaktionssvar indeholder både `main_category` og `category`.
 
-`GET /transactions/summary?year=2026&month=11` returnerer udgifter, indtægter og netto samlet, under `main_categories` grupperet på hovedkategori med underkategorier indlejret, samt `categories` som en flad liste over underkategorier. `GET /transactions` henter alle transaktioner, `GET /transactions?category=Dagligvarer` henter transaktioner i én underkategori, `GET /transactions/{id}` henter én transaktion, `PUT /transactions/{id}` retter en transaktion og `DELETE /transactions/{id}` sletter en transaktion. Data bliver i Lakebase efter genstart af appen.
+Importen omfatter også bankens `Ingen kategori` under `Indgår ikke i budget og forbrug` samt `Anden indtægt` under `Indtægter`.
+
+`GET /transactions/summary?year=2026&month=11` returnerer udgifter, indtægter og netto samlet, under `main_categories` grupperet på hovedkategori med underkategorier indlejret, samt `categories` som en flad liste over underkategorier. Hovedkategorien `Indgår ikke i budget og forbrug` returneres særskilt som `excluded_from_budget` og medregnes ikke i de samlede beløb. `GET /transactions` henter alle transaktioner, `GET /transactions?category=Dagligvarer` henter transaktioner i én underkategori, `GET /transactions/{id}` henter én transaktion, `PUT /transactions/{id}` retter en transaktion og `DELETE /transactions/{id}` sletter en transaktion. Data bliver i Lakebase efter genstart af appen.
+
+## Import af bankens CSV
+
+CSV-filen læses lokalt. Importen bruger `Dato`, `Tekst`, `Beløb`, `Hovedkategori` og `Kategori`; saldo og kontooplysninger gemmes ikke. Start altid med en forhåndsvisning fra projektets rodmappe:
+
+```powershell
+python -m scripts.import_bank_csv "C:\Users\ulrik\Downloads\din-fil.csv" --preview
+```
+
+Når forhåndsvisningen melder, at alle rækker er gyldige, kan filen importeres med `--apply`. Importen afbrydes, hvis `transactions` allerede indeholder rækker, så samme fil ikke kan importeres oven i eksisterende posteringer ved en fejl.

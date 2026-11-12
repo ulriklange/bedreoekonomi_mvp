@@ -5,6 +5,7 @@ from pathlib import Path
 import psycopg
 from dotenv import load_dotenv
 from psycopg.conninfo import make_conninfo
+from .schemas import CATEGORY_PARENTS
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -46,11 +47,28 @@ async def lifespan(app):
                 merchant TEXT NOT NULL,
                 amount NUMERIC(10, 2) NOT NULL,
                 transaction_date DATE NOT NULL,
+                main_category TEXT NOT NULL,
                 category TEXT NOT NULL
             )
             """
         )
         connection.execute(
             "ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_amount_check"
+        )
+        connection.execute(
+            "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS main_category TEXT"
+        )
+        for category, main_category in CATEGORY_PARENTS.items():
+            connection.execute(
+                "UPDATE transactions SET main_category = %s "
+                "WHERE category = %s AND main_category IS NULL",
+                (main_category, category.value),
+            )
+        connection.execute(
+            "UPDATE transactions SET main_category = 'Ukategoriseret' "
+            "WHERE main_category IS NULL"
+        )
+        connection.execute(
+            "ALTER TABLE transactions ALTER COLUMN main_category SET NOT NULL"
         )
     yield

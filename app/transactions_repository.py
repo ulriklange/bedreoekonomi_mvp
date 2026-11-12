@@ -3,12 +3,13 @@ from decimal import Decimal
 
 from .database import get_connection
 from .schemas import (
+    CATEGORY_PARENTS,
     CategoryTotal,
+    EXCLUDED_MAIN_CATEGORY,
     MainCategoryTotal,
     Transaction,
     TransactionCreate,
     TransactionSummary,
-    main_category_for,
 )
 
 
@@ -18,8 +19,8 @@ def _to_transaction(row) -> Transaction:
         merchant=row[1],
         amount=row[2],
         date=row[3],
-        main_category=main_category_for(row[4]),
-        category=row[4],
+        main_category=row[4],
+        category=row[5],
     )
 
 
@@ -27,14 +28,16 @@ def create_transaction(transaction: TransactionCreate) -> Transaction:
     with get_connection() as connection:
         row = connection.execute(
             """
-            INSERT INTO transactions (merchant, amount, transaction_date, category)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id, merchant, amount, transaction_date, category
+            INSERT INTO transactions
+                (merchant, amount, transaction_date, main_category, category)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id, merchant, amount, transaction_date, main_category, category
             """,
             (
                 transaction.merchant,
                 transaction.amount,
                 transaction.date,
+                CATEGORY_PARENTS[transaction.category],
                 transaction.category.value,
             ),
         ).fetchone()
@@ -44,7 +47,7 @@ def create_transaction(transaction: TransactionCreate) -> Transaction:
 
 def list_transactions(category: str | None = None) -> list[Transaction]:
     query = """
-        SELECT id, merchant, amount, transaction_date, category
+        SELECT id, merchant, amount, transaction_date, main_category, category
         FROM transactions
     """
     parameters = ()
@@ -77,32 +80,34 @@ def summarize_month(year: int, month: int) -> TransactionSummary:
                    COALESCE(SUM(amount), 0)
             FROM transactions
             WHERE transaction_date >= %s AND transaction_date < %s
+              AND main_category <> %s
             """,
-            (start_date, next_month),
+            (start_date, next_month, EXCLUDED_MAIN_CATEGORY),
         ).fetchone()
         category_rows = connection.execute(
             """
-            SELECT category,
+            SELECT main_category,
+                   category,
                    COUNT(*),
                    COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0),
                    COALESCE(SUM(amount), 0)
             FROM transactions
             WHERE transaction_date >= %s AND transaction_date < %s
-            GROUP BY category
-            ORDER BY SUM(ABS(amount)) DESC, category
+            GROUP BY main_category, category
+            ORDER BY SUM(ABS(amount)) DESC, main_category, category
             """,
             (start_date, next_month),
         ).fetchall()
 
     categories = [
         CategoryTotal(
-            main_category=main_category_for(category_row[0]),
-            category=category_row[0],
-            transaction_count=category_row[1],
-            expense_total=category_row[2],
-            income_total=category_row[3],
-            net_total=category_row[4],
+            main_category=category_row[0],
+            category=category_row[1],
+            transaction_count=category_row[2],
+            expense_total=category_row[3],
+            income_total=category_row[4],
+            net_total=category_row[5],
         )
         for category_row in category_rows
     ]
@@ -124,6 +129,13 @@ def summarize_month(year: int, month: int) -> TransactionSummary:
         totals["net_total"] += category.net_total
         totals["subcategories"].append(category)
 
+    excluded_from_budget = parent_totals.pop(EXCLUDED_MAIN_CATEGORY, None)
+    if excluded_from_budget is not None:
+        excluded_from_budget = MainCategoryTotal(
+            main_category=EXCLUDED_MAIN_CATEGORY,
+            **excluded_from_budget,
+        )
+
     main_categories = [
         MainCategoryTotal(main_category=name, **totals)
         for name, totals in sorted(
@@ -142,6 +154,7 @@ def summarize_month(year: int, month: int) -> TransactionSummary:
         net_total=row[3],
         categories=categories,
         main_categories=main_categories,
+        excluded_from_budget=excluded_from_budget,
     )
 
 
@@ -149,7 +162,7 @@ def get_transaction(transaction_id: int) -> Transaction | None:
     with get_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, merchant, amount, transaction_date, category
+            SELECT id, merchant, amount, transaction_date, main_category, category
             FROM transactions
             WHERE id = %s
             """,
@@ -172,14 +185,16 @@ def update_transaction(
             SET merchant = %s,
                 amount = %s,
                 transaction_date = %s,
+                main_category = %s,
                 category = %s
             WHERE id = %s
-            RETURNING id, merchant, amount, transaction_date, category
+            RETURNING id, merchant, amount, transaction_date, main_category, category
             """,
             (
                 transaction.merchant,
                 transaction.amount,
                 transaction.date,
+                CATEGORY_PARENTS[transaction.category],
                 transaction.category.value,
                 transaction_id,
             ),

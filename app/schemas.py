@@ -28,7 +28,7 @@ class BankCategory(str, Enum):
     INTEREST_FEES = "Renter og gebyrer"
     LOANS_DEBT_OTHER = "Lån og gæld (Andet)"
     TRANSPORT_OTHER = "Transport (Andet)"
-    SERVICE_REPAIR = "Service og reperation"
+    SERVICE_REPAIR = "Service og reparation"
     FUEL = "Brændstof"
     LOAN_LEASING_PAYMENT = "Låne- og leasingydelse"
     VEHICLE_TAX = "Ejer-, registrerings- og vægtafgift"
@@ -58,6 +58,11 @@ class BankCategory(str, Enum):
     NEWSPAPERS_MAGAZINES_BOOKS = "Aviser, blade og bøger"
     CHILDCARE = "Børnepasning"
     SCHOOL_EDUCATION_COURSES = "Skole-, uddannelses- og kursusudgifter"
+    UNCATEGORIZED = "Ingen kategori"
+    OTHER_INCOME = "Anden indtægt"
+
+
+EXCLUDED_MAIN_CATEGORY = "Indgår ikke i budget og forbrug"
 
 
 # Mapping from the bank's subcategory (stored as `category`) to its parent.
@@ -114,6 +119,8 @@ CATEGORY_PARENTS: dict[BankCategory, str] = {
     BankCategory.NEWSPAPERS_MAGAZINES_BOOKS: "Medier",
     BankCategory.CHILDCARE: "Uddannelse og pasning",
     BankCategory.SCHOOL_EDUCATION_COURSES: "Uddannelse og pasning",
+    BankCategory.UNCATEGORIZED: EXCLUDED_MAIN_CATEGORY,
+    BankCategory.OTHER_INCOME: "Indtægter",
 }
 
 
@@ -182,3 +189,4 @@ class TransactionSummary(BaseModel):
     net_total: Decimal
     categories: list[CategoryTotal]
     main_categories: list[MainCategoryTotal]
+    excluded_from_budget: MainCategoryTotal | None

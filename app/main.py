@@ -1,6 +1,12 @@
 from fastapi import FastAPI, HTTPException, Query
 from .database import lifespan
-from .schemas import BankCategory, Transaction, TransactionCreate, TransactionSummary
+from .schemas import (
+    BankCategory,
+    Transaction,
+    TransactionCreate,
+    TransactionSummary,
+    category_hierarchy,
+)
 from . import transactions_repository
 
 
@@ -20,6 +26,15 @@ def health_check() -> dict[str, str]:
 @app.get("/categories", response_model=list[str], tags=["categories"])
 def list_categories() -> list[str]:
     return [category.value for category in BankCategory]
+
+
+@app.get(
+    "/category-hierarchy",
+    response_model=dict[str, list[str]],
+    tags=["categories"],
+)
+def get_category_hierarchy() -> dict[str, list[str]]:
+    return category_hierarchy()
 
 
 @app.post("/transactions", response_model=Transaction, tags=["transactions"])

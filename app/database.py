@@ -44,10 +44,13 @@ async def lifespan(app):
             CREATE TABLE IF NOT EXISTS transactions (
                 id BIGSERIAL PRIMARY KEY,
                 merchant TEXT NOT NULL,
-                amount NUMERIC(10, 2) NOT NULL CHECK (amount > 0),
+                amount NUMERIC(10, 2) NOT NULL,
                 transaction_date DATE NOT NULL,
                 category TEXT NOT NULL
             )
             """
+        )
+        connection.execute(
+            "ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_amount_check"
         )
     yield

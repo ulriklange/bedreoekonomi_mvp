@@ -36,4 +36,8 @@ Databaseforbindelsen ligger i `app/database.py`, Pydantic-modeller til datavalid
 - Interaktiv API-dokumentation: http://127.0.0.1:8000/docs
 - Alternativ dokumentation: http://127.0.0.1:8000/redoc
 
-Brug `GET /categories` til at hente bankens kategoriliste, `POST /transactions` til at gemme en udgift, `GET /transactions` til at hente alle udgifter, `GET /transactions?category=Dagligvarer` til at hente udgifter i én kategori, `GET /transactions/summary?year=2026&month=11` til at hente en månedsopsummering med kategori-fordeling, `GET /transactions/{id}` til at hente én udgift, `PUT /transactions/{id}` til at rette en udgift og `DELETE /transactions/{id}` til at slette en udgift. Data bliver i Lakebase efter genstart af appen.
+Beløb gemmes med bankens fortegn: negative beløb er udgifter, positive beløb er indtægter. Månedsopsummeringen viser udgifter, indtægter og netto separat.
+
+Brug `GET /categories` til at hente bankens underkategorier og `GET /category-hierarchy` til at hente underkategorier grupperet under deres hovedkategori. `POST /transactions` gemmer en transaktion ved at angive dens underkategori i feltet `category`; API'et udleder hovedkategorien. Transaktionssvar indeholder derfor både `main_category` og `category`.
+
+`GET /transactions/summary?year=2026&month=11` returnerer udgifter, indtægter og netto samlet, under `main_categories` grupperet på hovedkategori med underkategorier indlejret, samt `categories` som en flad liste over underkategorier. `GET /transactions` henter alle transaktioner, `GET /transactions?category=Dagligvarer` henter transaktioner i én underkategori, `GET /transactions/{id}` henter én transaktion, `PUT /transactions/{id}` retter en transaktion og `DELETE /transactions/{id}` sletter en transaktion. Data bliver i Lakebase efter genstart af appen.

@@ -1,7 +1,15 @@
 from datetime import date
+from decimal import Decimal
 
 from .database import get_connection
-from .schemas import CategoryTotal, Transaction, TransactionCreate, TransactionSummary
+from .schemas import (
+    CategoryTotal,
+    MainCategoryTotal,
+    Transaction,
+    TransactionCreate,
+    TransactionSummary,
+    main_category_for,
+)
 
 
 def _to_transaction(row) -> Transaction:
@@ -10,6 +18,7 @@ def _to_transaction(row) -> Transaction:
         merchant=row[1],
         amount=row[2],
         date=row[3],
+        main_category=main_category_for(row[4]),
         category=row[4],
     )
 
@@ -62,7 +71,10 @@ def summarize_month(year: int, month: int) -> TransactionSummary:
     with get_connection() as connection:
         row = connection.execute(
             """
-            SELECT COUNT(*), COALESCE(SUM(amount), 0)
+            SELECT COUNT(*),
+                   COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0),
+                   COALESCE(SUM(amount), 0)
             FROM transactions
             WHERE transaction_date >= %s AND transaction_date < %s
             """,
@@ -70,28 +82,66 @@ def summarize_month(year: int, month: int) -> TransactionSummary:
         ).fetchone()
         category_rows = connection.execute(
             """
-            SELECT category, COUNT(*), SUM(amount)
+            SELECT category,
+                   COUNT(*),
+                   COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0),
+                   COALESCE(SUM(amount), 0)
             FROM transactions
             WHERE transaction_date >= %s AND transaction_date < %s
             GROUP BY category
-            ORDER BY SUM(amount) DESC, category
+            ORDER BY SUM(ABS(amount)) DESC, category
             """,
             (start_date, next_month),
         ).fetchall()
+
+    categories = [
+        CategoryTotal(
+            main_category=main_category_for(category_row[0]),
+            category=category_row[0],
+            transaction_count=category_row[1],
+            expense_total=category_row[2],
+            income_total=category_row[3],
+            net_total=category_row[4],
+        )
+        for category_row in category_rows
+    ]
+    parent_totals: dict[str, dict] = {}
+    for category in categories:
+        totals = parent_totals.setdefault(
+            category.main_category,
+            {
+                "transaction_count": 0,
+                "expense_total": Decimal("0"),
+                "income_total": Decimal("0"),
+                "net_total": Decimal("0"),
+                "subcategories": [],
+            },
+        )
+        totals["transaction_count"] += category.transaction_count
+        totals["expense_total"] += category.expense_total
+        totals["income_total"] += category.income_total
+        totals["net_total"] += category.net_total
+        totals["subcategories"].append(category)
+
+    main_categories = [
+        MainCategoryTotal(main_category=name, **totals)
+        for name, totals in sorted(
+            parent_totals.items(),
+            key=lambda item: item[1]["expense_total"] + item[1]["income_total"],
+            reverse=True,
+        )
+    ]
 
     return TransactionSummary(
         year=year,
         month=month,
         transaction_count=row[0],
-        total_amount=row[1],
-        categories=[
-            CategoryTotal(
-                category=category_row[0],
-                transaction_count=category_row[1],
-                total_amount=category_row[2],
-            )
-            for category_row in category_rows
-        ],
+        expense_total=row[1],
+        income_total=row[2],
+        net_total=row[3],
+        categories=categories,
+        main_categories=main_categories,
     )
 
 

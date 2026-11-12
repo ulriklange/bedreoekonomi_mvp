@@ -34,4 +34,4 @@ Ved opstart opretter appen tabellen `transactions`, hvis den ikke findes.
 - Interaktiv API-dokumentation: http://127.0.0.1:8000/docs
 - Alternativ dokumentation: http://127.0.0.1:8000/redoc
 
-Brug `POST /transactions` til at gemme en udgift og `GET /transactions` til at hente dem. Data bliver i Lakebase efter genstart af appen.
+Brug `POST /transactions` til at gemme en udgift, `GET /transactions` til at hente alle udgifter, `GET /transactions/{id}` til at hente én udgift, `PUT /transactions/{id}` til at rette en udgift og `DELETE /transactions/{id}` til at slette en udgift. Data bliver i Lakebase efter genstart af appen.

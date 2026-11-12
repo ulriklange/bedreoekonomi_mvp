@@ -136,3 +136,56 @@ def get_transaction(transaction_id: int) -> Transaction:
     return Transaction(
         id=row[0], merchant=row[1], amount=row[2], date=row[3], category=row[4]
     )
+
+
+@app.put(
+    "/transactions/{transaction_id}",
+    response_model=Transaction,
+    tags=["transactions"],
+)
+def update_transaction(
+    transaction_id: int,
+    transaction: TransactionCreate,
+) -> Transaction:
+    with psycopg.connect(DB_CONNECTION) as connection:
+        row = connection.execute(
+            """
+            UPDATE transactions
+            SET merchant = %s,
+                amount = %s,
+                transaction_date = %s,
+                category = %s
+            WHERE id = %s
+            RETURNING id, merchant, amount, transaction_date, category
+            """,
+            (
+                transaction.merchant,
+                transaction.amount,
+                transaction.date,
+                transaction.category,
+                transaction_id,
+            ),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    return Transaction(
+        id=row[0], merchant=row[1], amount=row[2], date=row[3], category=row[4]
+    )
+
+
+@app.delete(
+    "/transactions/{transaction_id}",
+    status_code=204,
+    tags=["transactions"],
+)
+def delete_transaction(transaction_id: int) -> None:
+    with psycopg.connect(DB_CONNECTION) as connection:
+        row = connection.execute(
+            "DELETE FROM transactions WHERE id = %s RETURNING id",
+            (transaction_id,),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")

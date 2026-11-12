@@ -1,7 +1,7 @@
 from datetime import date
 
 from .database import get_connection
-from .schemas import Transaction, TransactionCreate, TransactionSummary
+from .schemas import CategoryTotal, Transaction, TransactionCreate, TransactionSummary
 
 
 def _to_transaction(row) -> Transaction:
@@ -68,12 +68,30 @@ def summarize_month(year: int, month: int) -> TransactionSummary:
             """,
             (start_date, next_month),
         ).fetchone()
+        category_rows = connection.execute(
+            """
+            SELECT category, COUNT(*), SUM(amount)
+            FROM transactions
+            WHERE transaction_date >= %s AND transaction_date < %s
+            GROUP BY category
+            ORDER BY SUM(amount) DESC, category
+            """,
+            (start_date, next_month),
+        ).fetchall()
 
     return TransactionSummary(
         year=year,
         month=month,
         transaction_count=row[0],
         total_amount=row[1],
+        categories=[
+            CategoryTotal(
+                category=category_row[0],
+                transaction_count=category_row[1],
+                total_amount=category_row[2],
+            )
+            for category_row in category_rows
+        ],
     )
 
 

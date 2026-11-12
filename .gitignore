@@ -1,0 +1,13 @@
+# Python virtual environment and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local secrets and environment configuration
+.env
+*.env
+
+# Local editor settings
+.vscode/

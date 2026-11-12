@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from .database import lifespan
-from .schemas import Transaction, TransactionCreate, TransactionSummary
+from .schemas import BankCategory, Transaction, TransactionCreate, TransactionSummary
 from . import transactions_repository
 
 
@@ -17,6 +17,11 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/categories", response_model=list[str], tags=["categories"])
+def list_categories() -> list[str]:
+    return [category.value for category in BankCategory]
+
+
 @app.post("/transactions", response_model=Transaction, tags=["transactions"])
 def create_transaction(transaction: TransactionCreate) -> Transaction:
     return transactions_repository.create_transaction(transaction)
@@ -24,9 +29,10 @@ def create_transaction(transaction: TransactionCreate) -> Transaction:
 
 @app.get("/transactions", response_model=list[Transaction], tags=["transactions"])
 def list_transactions(
-    category: str | None = Query(default=None, min_length=1),
+    category: BankCategory | None = Query(default=None),
 ) -> list[Transaction]:
-    return transactions_repository.list_transactions(category)
+    category_name = category.value if category is not None else None
+    return transactions_repository.list_transactions(category_name)
 
 
 @app.get(

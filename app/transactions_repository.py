@@ -26,7 +26,7 @@ def create_transaction(transaction: TransactionCreate) -> Transaction:
                 transaction.merchant,
                 transaction.amount,
                 transaction.date,
-                transaction.category,
+                transaction.category.value,
             ),
         ).fetchone()
 
@@ -130,7 +130,7 @@ def update_transaction(
                 transaction.merchant,
                 transaction.amount,
                 transaction.date,
-                transaction.category,
+                transaction.category.value,
                 transaction_id,
             ),
         ).fetchone()

@@ -52,4 +52,4 @@ CSV-filen læses lokalt. Importen bruger `Dato`, `Tekst`, `Beløb`, `Hovedkatego
 python -m scripts.import_bank_csv "C:\Users\ulrik\Downloads\din-fil.csv" --preview
 ```
 
-Når forhåndsvisningen melder, at alle rækker er gyldige, kan filen importeres med `--apply`. Importen afbrydes, hvis `transactions` allerede indeholder rækker, så samme fil ikke kan importeres oven i eksisterende posteringer ved en fejl.
+Når forhåndsvisningen melder, at alle rækker er gyldige, kan filen synkroniseres med `--apply`. Importen opretter et fingeraftryk ud fra kontonummer, dato, tekst, beløb og saldo. Kun fingeraftrykket gemmes; kontonummer og saldo gemmes ikke. Første synkronisering matcher de eksisterende rækker fra den oprindelige import og tilføjer fingeraftryk til dem. Senere synkroniseringer springer uændrede rækker over, tilføjer nye og opdaterer hoved- og underkategori, hvis banken har ændret kategoriseringen. Kategoriskift vises også i terminalen. En manuel kategorirettelse i appen bliver derfor overskrevet næste gang CSV'en synkroniseres med bankens kategori.

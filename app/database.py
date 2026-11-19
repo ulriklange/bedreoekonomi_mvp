@@ -47,7 +47,9 @@ def ensure_schema(connection) -> None:
             transaction_date DATE NOT NULL,
             main_category TEXT NOT NULL,
             category TEXT NOT NULL,
-            source_fingerprint TEXT
+            source_fingerprint TEXT,
+            account_ref TEXT,
+            account_name TEXT
         )
         """
     )
@@ -59,6 +61,12 @@ def ensure_schema(connection) -> None:
     )
     connection.execute(
         "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS source_fingerprint TEXT"
+    )
+    connection.execute(
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS account_ref TEXT"
+    )
+    connection.execute(
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS account_name TEXT"
     )
     for category, main_category in CATEGORY_PARENTS.items():
         connection.execute(

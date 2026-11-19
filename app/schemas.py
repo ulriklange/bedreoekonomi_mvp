@@ -53,16 +53,24 @@ class BankCategory(str, Enum):
     OTHER_EXPENSE = "Anden udgift"
     OTHER_TRANSFER = "Andet (Overførsel)"
     OTHER_CASH = "Andet (Kontanter)"
+    SALARY_PENSION_INCOME = "Løn, dagpenge og pension"
+    PUBLIC_BENEFITS = "Offentlige ydelser"
+    INCOME_OTHER = "Indtægter (Andet)"
     PHONE_INTERNET_STREAMING_TV = "Telefon, internet, streaming og TV"
     FILM_MUSIC_APPS_SOFTWARE = "Film, musik, apps og software"
     NEWSPAPERS_MAGAZINES_BOOKS = "Aviser, blade og bøger"
     CHILDCARE = "Børnepasning"
     SCHOOL_EDUCATION_COURSES = "Skole-, uddannelses- og kursusudgifter"
     UNCATEGORIZED = "Ingen kategori"
+    UNCATEGORIZED_TRANSFER = "Ingen kategori (Overførsel)"
     OTHER_INCOME = "Anden indtægt"
 
 
 EXCLUDED_MAIN_CATEGORY = "Indgår ikke i budget og forbrug"
+TRANSFER_CATEGORIES = (
+    BankCategory.OTHER_TRANSFER.value,
+    BankCategory.UNCATEGORIZED_TRANSFER.value,
+)
 
 
 # Mapping from the bank's subcategory (stored as `category`) to its parent.
@@ -114,12 +122,16 @@ CATEGORY_PARENTS: dict[BankCategory, str] = {
     BankCategory.OTHER_EXPENSE: "Andet",
     BankCategory.OTHER_TRANSFER: "Andet",
     BankCategory.OTHER_CASH: "Andet",
+    BankCategory.SALARY_PENSION_INCOME: "Indtægter",
+    BankCategory.PUBLIC_BENEFITS: "Indtægter",
+    BankCategory.INCOME_OTHER: "Indtægter",
     BankCategory.PHONE_INTERNET_STREAMING_TV: "Medier",
     BankCategory.FILM_MUSIC_APPS_SOFTWARE: "Medier",
     BankCategory.NEWSPAPERS_MAGAZINES_BOOKS: "Medier",
     BankCategory.CHILDCARE: "Uddannelse og pasning",
     BankCategory.SCHOOL_EDUCATION_COURSES: "Uddannelse og pasning",
     BankCategory.UNCATEGORIZED: EXCLUDED_MAIN_CATEGORY,
+    BankCategory.UNCATEGORIZED_TRANSFER: EXCLUDED_MAIN_CATEGORY,
     BankCategory.OTHER_INCOME: "Indtægter",
 }
 
@@ -143,6 +155,7 @@ class TransactionFields(BaseModel):
     merchant: str = Field(min_length=1, examples=["Netto"])
     amount: Decimal = Field(max_digits=10, decimal_places=2, examples=[-245.50])
     date: Date = Field(examples=["2026-11-11"])
+    account_name: str | None = Field(default=None, min_length=1, examples=["Forbrug"])
 
     @field_validator("amount")
     @classmethod
@@ -190,3 +203,49 @@ class TransactionSummary(BaseModel):
     categories: list[CategoryTotal]
     main_categories: list[MainCategoryTotal]
     excluded_from_budget: MainCategoryTotal | None
+
+
+class MonthlyHistoryItem(BaseModel):
+    year: int
+    month: int
+    partial_month: bool
+    transaction_count: int
+    expense_total: Decimal
+    income_total: Decimal
+    net_total: Decimal
+    main_categories: list[MainCategoryTotal]
+    excluded_from_budget: MainCategoryTotal | None
+
+
+class TransactionHistory(BaseModel):
+    from_date: Date
+    to_date: Date
+    months: list[MonthlyHistoryItem]
+
+
+class ForecastCategory(BaseModel):
+    main_category: str
+    category: str
+    expense_forecast: Decimal
+    income_forecast: Decimal
+    net_forecast: Decimal
+
+
+class ForecastMainCategory(BaseModel):
+    main_category: str
+    expense_forecast: Decimal
+    income_forecast: Decimal
+    net_forecast: Decimal
+    subcategories: list[ForecastCategory]
+
+
+class MonthlyForecast(BaseModel):
+    forecast_year: int
+    forecast_month: int
+    history_from: Date
+    history_to: Date
+    months_used: int
+    expense_forecast: Decimal
+    income_forecast: Decimal
+    net_forecast: Decimal
+    main_categories: list[ForecastMainCategory]

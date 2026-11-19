@@ -34,6 +34,8 @@ class BankCsvTransaction:
     transaction: TransactionCreate
     main_category: str
     fingerprint: str
+    account_ref: str
+    account_name: str
     match_key: tuple[date, str, Decimal]
 
 
@@ -73,11 +75,17 @@ def read_transactions(csv_path: Path) -> list[BankCsvTransaction]:
                 ).date()
                 merchant = row["Tekst"].strip()
                 amount = parse_amount(row["Beløb"])
+                account_number = "".join(row["Kontonummer"].split())
+                if not account_number:
+                    raise ValueError("Kontonummer mangler")
+                account_name = row.get("Kontonavn", "").strip() or "Ukendt konto"
+                account_ref = hashlib.sha256(account_number.encode("utf-8")).hexdigest()
                 transaction = TransactionCreate(
                     merchant=merchant,
                     amount=amount,
                     date=transaction_date,
                     category=category,
+                    account_name=account_name,
                 )
 
                 expected_parent = main_category_for(category.value)
@@ -85,7 +93,6 @@ def read_transactions(csv_path: Path) -> list[BankCsvTransaction]:
                 if supplied_parent and supplied_parent != expected_parent:
                     raise ValueError("Hovedkategori passer ikke til Kategori")
 
-                account_number = "".join(row["Kontonummer"].split())
                 balance = parse_amount(row["Saldo"])
                 identity = {
                     "account": account_number,
@@ -109,6 +116,8 @@ def read_transactions(csv_path: Path) -> list[BankCsvTransaction]:
                         transaction=transaction,
                         main_category=supplied_parent or expected_parent,
                         fingerprint=fingerprint,
+                        account_ref=account_ref,
+                        account_name=account_name,
                         match_key=(
                             transaction_date,
                             merchant,
@@ -131,9 +140,10 @@ def read_transactions(csv_path: Path) -> list[BankCsvTransaction]:
 
 def import_transactions(
     transactions: list[BankCsvTransaction],
-) -> tuple[int, int, int, list[str]]:
+) -> tuple[int, int, int, int, list[str]]:
     inserted_count = 0
     backfilled_count = 0
+    account_updates = 0
     skipped_count = 0
     category_changes: list[str] = []
 
@@ -142,54 +152,72 @@ def import_transactions(
         existing_rows = connection.execute(
             """
             SELECT id, merchant, amount, transaction_date, main_category,
-                   category, source_fingerprint
+                   category, source_fingerprint, account_ref, account_name
             FROM transactions
             ORDER BY id
             """
         ).fetchall()
         known_fingerprints = {
-            row[6]: (row[0], row[4], row[5])
+            row[6]: (row[0], row[4], row[5], row[7], row[8])
             for row in existing_rows
             if row[6] is not None
         }
         unkeyed_rows: dict[
-            tuple[date, str, Decimal], deque[tuple[int, str, str]]
+            tuple[date, str, Decimal],
+            deque[tuple[int, str, str, str | None, str | None]],
         ] = defaultdict(deque)
         for row in existing_rows:
             if row[6] is None:
                 unkeyed_rows[(row[3], row[1], row[2])].append(
-                    (row[0], row[4], row[5])
+                    (row[0], row[4], row[5], row[7], row[8])
                 )
 
         with connection.cursor() as cursor:
             for item in transactions:
                 if item.fingerprint in known_fingerprints:
-                    transaction_id, old_main_category, old_category = (
-                        known_fingerprints[item.fingerprint]
-                    )
-                    if (
+                    (
+                        transaction_id,
+                        old_main_category,
+                        old_category,
+                        old_account_ref,
+                        old_account_name,
+                    ) = known_fingerprints[item.fingerprint]
+                    category_changed = (
                         old_main_category != item.main_category
                         or old_category != item.transaction.category.value
-                    ):
+                    )
+                    account_changed = (
+                        old_account_ref != item.account_ref
+                        or old_account_name != item.account_name
+                    )
+                    if category_changed or account_changed:
                         cursor.execute(
-                            "UPDATE transactions SET main_category = %s, category = %s "
+                            "UPDATE transactions SET main_category = %s, category = %s, "
+                            "account_ref = %s, account_name = %s "
                             "WHERE id = %s",
                             (
                                 item.main_category,
                                 item.transaction.category.value,
+                                item.account_ref,
+                                item.account_name,
                                 transaction_id,
                             ),
                         )
-                        category_changes.append(
-                            f"{item.transaction.date.isoformat()} "
-                            f"{item.transaction.merchant}: "
-                            f"{old_main_category} / {old_category} → "
-                            f"{item.main_category} / {item.transaction.category.value}"
-                        )
+                        if account_changed:
+                            account_updates += 1
+                        if category_changed:
+                            category_changes.append(
+                                f"{item.transaction.date.isoformat()} "
+                                f"{item.transaction.merchant}: "
+                                f"{old_main_category} / {old_category} → "
+                                f"{item.main_category} / {item.transaction.category.value}"
+                            )
                         known_fingerprints[item.fingerprint] = (
                             transaction_id,
                             item.main_category,
                             item.transaction.category.value,
+                            item.account_ref,
+                            item.account_name,
                         )
                     else:
                         skipped_count += 1
@@ -197,15 +225,24 @@ def import_transactions(
 
                 matching_ids = unkeyed_rows.get(item.match_key)
                 if matching_ids:
-                    legacy_id, old_main_category, old_category = matching_ids.popleft()
+                    (
+                        legacy_id,
+                        old_main_category,
+                        old_category,
+                        old_account_ref,
+                        old_account_name,
+                    ) = matching_ids.popleft()
                     updated = cursor.execute(
                         "UPDATE transactions SET source_fingerprint = %s, "
-                        "main_category = %s, category = %s "
+                        "main_category = %s, category = %s, account_ref = %s, "
+                        "account_name = %s "
                         "WHERE id = %s AND source_fingerprint IS NULL",
                         (
                             item.fingerprint,
                             item.main_category,
                             item.transaction.category.value,
+                            item.account_ref,
+                            item.account_name,
                             legacy_id,
                         ),
                     )
@@ -214,8 +251,15 @@ def import_transactions(
                             legacy_id,
                             item.main_category,
                             item.transaction.category.value,
+                            item.account_ref,
+                            item.account_name,
                         )
                         backfilled_count += 1
+                        if (
+                            old_account_ref != item.account_ref
+                            or old_account_name != item.account_name
+                        ):
+                            account_updates += 1
                         if (
                             old_main_category != item.main_category
                             or old_category != item.transaction.category.value
@@ -234,8 +278,8 @@ def import_transactions(
                     """
                     INSERT INTO transactions
                         (merchant, amount, transaction_date, main_category,
-                         category, source_fingerprint)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                         category, source_fingerprint, account_ref, account_name)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (source_fingerprint) DO NOTHING
                     RETURNING id
                     """,
@@ -246,6 +290,8 @@ def import_transactions(
                         item.main_category,
                         item.transaction.category.value,
                         item.fingerprint,
+                        item.account_ref,
+                        item.account_name,
                     ),
                 ).fetchone()
                 if inserted is None:
@@ -256,9 +302,17 @@ def import_transactions(
                         inserted[0],
                         item.main_category,
                         item.transaction.category.value,
+                        item.account_ref,
+                        item.account_name,
                     )
 
-    return inserted_count, backfilled_count, skipped_count, category_changes
+    return (
+        inserted_count,
+        backfilled_count,
+        account_updates,
+        skipped_count,
+        category_changes,
+    )
 
 
 def main() -> None:
@@ -280,11 +334,14 @@ def main() -> None:
         print("Forhåndsvisning færdig. Ingen data blev gemt.")
         return
 
-    inserted, backfilled, skipped, category_changes = import_transactions(transactions)
+    inserted, backfilled, account_updates, skipped, category_changes = (
+        import_transactions(transactions)
+    )
     print(
         "Synkronisering færdig: "
         f"{inserted} nye posteringer, "
         f"{backfilled} eksisterende posteringer fik dubletnøgle, "
+        f"{account_updates} konto-oplysninger tilføjet/opdateret, "
         f"{len(category_changes)} kategorier opdateret fra banken, "
         f"{skipped} dubletter sprunget over."
     )

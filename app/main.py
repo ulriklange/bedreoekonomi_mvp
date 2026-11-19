@@ -1,13 +1,24 @@
+from calendar import monthrange
+from datetime import date
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from .database import lifespan
 from .schemas import (
     BankCategory,
     Transaction,
     TransactionCreate,
+    TransactionHistory,
     TransactionSummary,
+    MonthlyForecast,
     category_hierarchy,
 )
 from . import transactions_repository
+
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
 app = FastAPI(
@@ -16,6 +27,12 @@ app = FastAPI(
     version="0.3.0",
     lifespan=lifespan,
 )
+app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def dashboard() -> FileResponse:
+    return FileResponse(WEB_DIR / "index.html")
 
 
 @app.get("/health", tags=["system"])
@@ -60,6 +77,75 @@ def get_monthly_summary(
     month: int = Query(ge=1, le=12),
 ) -> TransactionSummary:
     return transactions_repository.summarize_month(year, month)
+
+
+@app.get(
+    "/transactions/history",
+    response_model=TransactionHistory,
+    tags=["transactions"],
+)
+def get_transaction_history(
+    from_date: date = Query(...),
+    to_date: date = Query(...),
+) -> TransactionHistory:
+    if from_date > to_date:
+        raise HTTPException(
+            status_code=422,
+            detail="from_date must be earlier than or equal to to_date",
+        )
+    return transactions_repository.get_monthly_history(from_date, to_date)
+
+
+@app.get(
+    "/forecast/monthly",
+    response_model=MonthlyForecast,
+    tags=["forecast"],
+)
+def get_monthly_forecast(
+    forecast_year: int = Query(ge=2000, le=2100),
+    forecast_month: int = Query(ge=1, le=12),
+    history_from: date = Query(...),
+    history_to: date = Query(...),
+) -> MonthlyForecast:
+    if history_from > history_to:
+        raise HTTPException(
+            status_code=422,
+            detail="history_from must be earlier than or equal to history_to",
+        )
+    if history_from.day != 1 or history_to.day != monthrange(
+        history_to.year, history_to.month
+    )[1]:
+        raise HTTPException(
+            status_code=422,
+            detail="Forecast history must contain complete calendar months",
+        )
+
+    months_used = (
+        (history_to.year - history_from.year) * 12
+        + history_to.month
+        - history_from.month
+        + 1
+    )
+    if months_used < 3:
+        raise HTTPException(
+            status_code=422,
+            detail="At least three complete history months are required",
+        )
+
+    forecast_index = forecast_year * 12 + forecast_month
+    history_end_index = history_to.year * 12 + history_to.month
+    if forecast_index <= history_end_index:
+        raise HTTPException(
+            status_code=422,
+            detail="Forecast month must be later than the history period",
+        )
+
+    return transactions_repository.forecast_monthly(
+        forecast_year,
+        forecast_month,
+        history_from,
+        history_to,
+    )
 
 
 @app.get(

@@ -192,7 +192,7 @@ async function loadMonth() {
     const isForecast = year > now.getFullYear()
       || (year === now.getFullYear() && month > now.getMonth() + 1);
     const lastCompleteMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-    const historyFrom = `${lastCompleteMonth.getFullYear()}-01-01`;
+    const historyFrom = `${lastCompleteMonth.getFullYear() - 2}-01-01`;
     const historyTo = `${lastCompleteMonth.getFullYear()}-${String(lastCompleteMonth.getMonth() + 1).padStart(2, "0")}-${String(lastCompleteMonth.getDate()).padStart(2, "0")}`;
     const url = isForecast
       ? `/forecast/monthly?forecast_year=${year}&forecast_month=${month}&history_from=${historyFrom}&history_to=${historyTo}`
@@ -225,11 +225,17 @@ async function loadMonth() {
 
     document.querySelector("#expense-total").textContent = formatAmount(summary.expense_total);
     document.querySelector("#income-total").textContent = formatAmount(summary.income_total);
+    const forecastMonthName = new Intl.DateTimeFormat("da-DK", { month: "long" })
+      .format(new Date(year, month - 1, 1));
     const expenseFootnote = isForecast
-      ? `Gennemsnit fra ${result.months_used} afsluttede måneder`
+      ? result.expense_seasonal
+        ? `Gennemsnit fra samme måned i ${result.expense_months_used} tidligere år`
+        : `Gennemsnit fra ${result.expense_months_used} historiske måneder (ingen tidligere ${forecastMonthName})`
       : "Registreret i den valgte måned";
     const incomeFootnote = isForecast
-      ? `Gennemsnit fra ${result.income_months_used} hele måneder (første måned udeladt)`
+      ? result.income_seasonal
+        ? `Gennemsnit fra samme måned i ${result.income_months_used} tidligere år`
+        : `Gennemsnit fra ${result.income_months_used} historiske måneder (første måned udeladt)`
       : "Registreret i den valgte måned";
     document.querySelector("#income-label").textContent = isForecast ? "Prognose indtægter" : "Indtægter";
     document.querySelector("#expense-label").textContent = isForecast ? "Prognose udgifter" : "Udgifter";
@@ -239,7 +245,7 @@ async function loadMonth() {
     const forecastNote = document.querySelector("#forecast-note");
     forecastNote.hidden = !isForecast;
     forecastNote.textContent = isForecast
-      ? "Dette er et gennemsnitsestimat, ikke faktiske posteringer. Store enkeltudgifter kan udelades, når de ligger markant over det sædvanlige niveau i kategorien eller hovedkategorien. De faktiske posteringer ændres ikke, og prognosen påvirker ikke rådighedsbeløbet."
+      ? "Dette er et estimat, ikke faktiske posteringer. Når historik for samme kalendermåned findes, bruges den til at afspejle sæsonudsving; ellers bruges gennemsnittet af historikken. Store enkeltudgifter kan udelades, hvis de ligger markant over det sædvanlige niveau. De faktiske posteringer ændres ikke, og prognosen påvirker ikke rådighedsbeløbet."
       : "";
     const excludedExpenses = isForecast ? result.excluded_one_off_expenses || [] : [];
     const outlierDetails = document.querySelector("#forecast-outliers");

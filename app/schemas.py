@@ -286,7 +286,10 @@ class MonthlyForecast(BaseModel):
     history_from: Date
     history_to: Date
     months_used: int
+    expense_months_used: int
+    expense_seasonal: bool
     income_months_used: int
+    income_seasonal: bool
     expense_forecast: Decimal
     income_forecast: Decimal
     net_forecast: Decimal

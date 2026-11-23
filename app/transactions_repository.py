@@ -377,10 +377,34 @@ def forecast_monthly(
         if history_from.month == 12
         else date(history_from.year, history_from.month + 1, 1)
     )
-    # The first history month may be missing payroll shifted from the prior month.
-    # It is excluded from the income average; absent income in any later month
-    # still counts as zero because the denominator is the number of eligible months.
-    income_months_used = max(months_used - 1, 0)
+    # Forecast seasonal totals from matching calendar months when available.
+    # The first history month is still omitted from income history because it may
+    # be missing salary shifted from the month before the imported period.
+    history_months: list[date] = []
+    month_cursor = date(history_from.year, history_from.month, 1)
+    while month_cursor <= history_to:
+        history_months.append(month_cursor)
+        month_cursor = (
+            date(month_cursor.year + 1, 1, 1)
+            if month_cursor.month == 12
+            else date(month_cursor.year, month_cursor.month + 1, 1)
+        )
+
+    seasonal_expense_months = [
+        month for month in history_months if month.month == forecast_month
+    ]
+    eligible_income_months = [
+        month for month in history_months if month >= income_history_from
+    ]
+    seasonal_income_months = [
+        month for month in eligible_income_months if month.month == forecast_month
+    ]
+    expense_seasonal = bool(seasonal_expense_months)
+    income_seasonal = bool(seasonal_income_months)
+    expense_months = seasonal_expense_months or history_months
+    income_months = seasonal_income_months or eligible_income_months
+    expense_months_used = len(expense_months)
+    income_months_used = len(income_months)
     with get_connection() as connection:
         rows = connection.execute(
             """
@@ -417,8 +441,10 @@ def forecast_monthly(
             ),
         ).fetchall()
 
-    def monthly_average(value: Decimal) -> Decimal:
-        return (value / Decimal(months_used)).quantize(
+    def monthly_average(value: Decimal, denominator: int) -> Decimal:
+        if denominator == 0:
+            return Decimal("0.00")
+        return (value / Decimal(denominator)).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
 
@@ -472,15 +498,21 @@ def forecast_monthly(
                         )
                     )
 
+        expense_by_report_month: dict[date, Decimal] = {}
+        for row in expense_rows:
+            if id(row) in excluded_ids:
+                continue
+            report_month = date(row[5].year, row[5].month, 1)
+            expense_by_report_month[report_month] = (
+                expense_by_report_month.get(report_month, Decimal("0"))
+                + abs(row[4])
+            )
         expense_total = sum(
-            (
-                abs(row[4])
-                for row in expense_rows
-                if id(row) not in excluded_ids
-            ),
+            (expense_by_report_month.get(month, Decimal("0")) for month in expense_months),
             Decimal("0"),
         )
-        income_by_report_month: dict[tuple[int, int], Decimal] = {}
+
+        income_by_report_month: dict[date, Decimal] = {}
         if category in {
             BankCategory.SALARY_PENSION_INCOME.value,
             BankCategory.PUBLIC_BENEFITS.value,
@@ -488,11 +520,14 @@ def forecast_monthly(
             for row in transactions:
                 if row[4] <= 0 or row[5] < income_history_from:
                     continue
-                report_month = (row[5].year, row[5].month)
+                report_month = date(row[5].year, row[5].month, 1)
                 income_by_report_month[report_month] = (
                     income_by_report_month.get(report_month, Decimal("0")) + row[4]
                 )
-        income_total = sum(income_by_report_month.values(), Decimal("0"))
+        income_total = sum(
+            (income_by_report_month.get(month, Decimal("0")) for month in income_months),
+            Decimal("0"),
+        )
         if expense_total or income_total:
             category_totals.append(
                 (main_category, category, expense_total, income_total)
@@ -503,19 +538,11 @@ def forecast_monthly(
         ForecastCategory(
             main_category=main_category,
             category=category,
-            expense_forecast=monthly_average(expense_total),
-            income_forecast=(
-                income_total / Decimal(income_months_used)
-                if income_months_used
-                else Decimal("0")
-            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            expense_forecast=monthly_average(expense_total, expense_months_used),
+            income_forecast=monthly_average(income_total, income_months_used),
             net_forecast=(
-                (
-                    income_total / Decimal(income_months_used)
-                    if income_months_used
-                    else Decimal("0")
-                )
-                - (expense_total / Decimal(months_used))
+                monthly_average(income_total, income_months_used)
+                - monthly_average(expense_total, expense_months_used)
             ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
         )
         for main_category, category, expense_total, income_total in category_totals
@@ -553,7 +580,10 @@ def forecast_monthly(
         history_from=history_from,
         history_to=history_to,
         months_used=months_used,
+        expense_months_used=expense_months_used,
+        expense_seasonal=expense_seasonal,
         income_months_used=income_months_used,
+        income_seasonal=income_seasonal,
         expense_forecast=sum(
             (item.expense_forecast for item in main_categories), Decimal("0")
         ),

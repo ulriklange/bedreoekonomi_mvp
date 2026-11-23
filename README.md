@@ -55,6 +55,22 @@ Importen omfatter bankens indtægtskategorier `Anden indtægt`, `Løn, dagpenge 
 
 `GET /forecast/upcoming-bills` leder i de seneste 365 dage efter mindst tre betalinger på samme konto og med samme modtagernavn, hvor alle intervaller er 25–35 dage. Mønstret skal også have en postering i indeværende eller foregående kalendermåned. Den viser et forventet beløb (gennemsnittet af de seneste tre beløb), forventet dato og betalingerne bag estimatet. Som standard vises de næste 45 dage; `days_ahead` kan sættes til 1–120. Det er et mønsterestimat, ikke en bekræftelse på en kommende regning, og første version finder kun månedlige betalinger.
 
+## Cloudflare-deploy
+
+Cloudflare Containers kan køre den eksisterende FastAPI-app med dens PostgreSQL-driver. Containeren bruger fortsat Lakebase som datalager; den lokale `user.env` er ikke en del af Docker-imaget. CSV-importen køres fortsat lokalt fra din egen computer.
+
+Cloudflare Containers kræver Workers Paid, som starter ved 5 USD pr. måned; containerforbrug over planens inkluderede mængder kan koste ekstra. Første besøg starter containeren, og den går i dvale efter 10 minutters inaktivitet. Worker-koden afviser forespørgsler, der ikke er godkendt af Cloudflare Access, så økonomiappen ikke kan tilgås, før Access er slået til for Workeren.
+
+Den nemmeste deployment er via **Workers Builds** fra dit GitHub-repo. Når deployfilerne er committed og pushed:
+
+1. I Cloudflare: gå til **Workers & Pages** → **Create application** → vælg **GitHub**, og forbind repoet.
+2. Vælg den branch, der indeholder deployfilerne, og brug repoets rodmappe. Navnet på Workeren skal være `bedre-oekonomi`.
+3. Lad build-kommandoen være tom, og brug `npm run deploy` som deploy-kommando. Slå previews fra for denne første opsætning.
+4. Når Workeren er oprettet, gå til **Settings → Variables & Secrets**. Tilføj `DB_HOST`, `DB_NAME`, `DB_USER` og `DB_PASSWORD` som **Secrets** med værdierne fra din lokale `user.env`.
+5. Gå til Workeren → **Access** → **Protect this Worker behind Access**, vælg **All traffic**, og tillad kun de e-mailadresser, der skal kunne se budgettet. Cloudflare Access kan sende en engangskode på e-mail.
+
+Før Access er slået til, afviser Workeren alle forespørgsler med `403` og videresender ikke trafik til økonomiappen. Du behøver ikke at sætte `DB_SSLMODE`; appen bruger automatisk `require`. CSV-importen køres fortsat lokalt.
+
 ## Import af bankens CSV
 
 CSV-filen læses lokalt. Importen bruger `Dato`, `Tekst`, `Beløb`, `Kontonummer`, `Kontonavn`, `Hovedkategori` og `Kategori`. Kontonavnet og en hash-baseret kontoidentifikation gemmes; råt kontonummer og saldo gemmes ikke. Start altid med en forhåndsvisning fra projektets rodmappe:

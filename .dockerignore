@@ -1,0 +1,14 @@
+# Keep local credentials and bank exports out of the Docker build context.
+user.env
+.env
+*.env
+*.csv
+
+# Local development and generated files.
+.git
+.venv
+venv
+node_modules
+__pycache__
+*.py[cod]
+.pytest_cache

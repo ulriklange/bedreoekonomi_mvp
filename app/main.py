@@ -13,6 +13,7 @@ from .schemas import (
     TransactionHistory,
     TransactionSummary,
     MonthlyForecast,
+    UpcomingBills,
     category_hierarchy,
 )
 from . import transactions_repository
@@ -145,6 +146,20 @@ def get_monthly_forecast(
         forecast_month,
         history_from,
         history_to,
+    )
+
+
+@app.get(
+    "/forecast/upcoming-bills",
+    response_model=UpcomingBills,
+    tags=["forecast"],
+)
+def get_upcoming_bills(
+    as_of: date | None = Query(default=None),
+    days_ahead: int = Query(default=45, ge=1, le=120),
+) -> UpcomingBills:
+    return transactions_repository.find_upcoming_bills(
+        as_of or date.today(), days_ahead
     )
 
 

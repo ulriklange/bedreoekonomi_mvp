@@ -36,28 +36,61 @@
 
         <section id="dashboard-content" hidden>
           <section class="summary-grid" aria-label="Månedens nøgletal">
-            <article class="summary-card expense-card">
-              <div class="card-label"><span class="metric-icon">−</span> Udgifter</div>
-              <p id="expense-total" class="card-value">—</p>
-              <p class="card-footnote">Registreret i den valgte måned</p>
-            </article>
             <article class="summary-card income-card">
-              <div class="card-label"><span class="metric-icon">+</span> Indtægter</div>
+              <div class="card-label"><span class="metric-icon">+</span> <span id="income-label">Indtægter</span></div>
               <p id="income-total" class="card-value">—</p>
               <p class="card-footnote">Registreret i den valgte måned</p>
             </article>
+            <article class="summary-card expense-card">
+              <div class="card-label"><span class="metric-icon">−</span> <span id="expense-label">Udgifter</span></div>
+              <p id="expense-total" class="card-value">—</p>
+              <p class="card-footnote">Registreret i den valgte måned</p>
+            </article>
             <article class="summary-card net-card">
-              <div class="card-label"><span class="metric-icon">=</span> Netto</div>
+              <div class="card-label"><span class="metric-icon">=</span> <span id="net-label">Netto</span></div>
               <p id="net-total" class="card-value">—</p>
               <p id="transaction-count" class="card-footnote">— posteringer</p>
             </article>
+            <article id="available-card" class="summary-card available-card" hidden>
+              <div class="card-label"><span class="metric-icon">≈</span> Rådighedsbeløb</div>
+              <p id="available-total" class="card-value">—</p>
+              <p class="card-footnote">Netto minus kommende faste betalinger</p>
+            </article>
+          </section>
+          <p id="forecast-note" class="reporting-note" hidden></p>
+          <details id="forecast-outliers" class="forecast-outliers" hidden>
+            <summary><span id="forecast-outlier-count"></span></summary>
+            <ul id="forecast-outlier-list"></ul>
+          </details>
+          <p class="reporting-note">Løn registreret på månedens sidste fem dage tælles med i den følgende måned.</p>
+
+          <section class="content-card bills-card" aria-labelledby="bills-heading">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">NÆSTE 45 DAGE</p>
+                <h2 id="bills-heading">Kommende faste betalinger</h2>
+              </div>
+              <div class="bills-controls">
+                <label class="bills-sort">Sortér
+                  <select id="bills-sort" aria-label="Sortér kommende betalinger">
+                    <option value="date">Dato</option>
+                    <option value="category">Kategori</option>
+                  </select>
+                </label>
+                <span id="bills-total" class="period-label">—</span>
+              </div>
+            </div>
+            <p class="bills-explanation">Estimat ud fra gentagne månedlige betalinger. Mønstre uden en postering i denne eller sidste måned vises ikke.</p>
+            <div id="bills-list" class="bills-list"></div>
+            <p id="empty-bills" class="empty-state" hidden>Jeg fandt ingen sikre månedlige mønstre endnu. Der kræves mindst tre betalinger.</p>
+            <p id="bills-error" class="bills-error" hidden></p>
           </section>
 
           <section class="content-card categories-card">
             <div class="section-heading">
               <div>
                 <p class="eyebrow">HVOR GÅR PENGENE HEN?</p>
-                <h2>Forbrug pr. kategori</h2>
+                <h2 id="categories-heading">Forbrug pr. kategori</h2>
               </div>
               <span id="report-period" class="period-label"></span>
             </div>

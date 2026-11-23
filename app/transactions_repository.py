@@ -1,13 +1,16 @@
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from statistics import median
 
 from .database import get_connection
 from .schemas import (
+    BankCategory,
     CATEGORY_PARENTS,
     CategoryTotal,
     EXCLUDED_MAIN_CATEGORY,
     ForecastCategory,
     ForecastMainCategory,
+    ForecastExcludedExpense,
     MainCategoryTotal,
     MonthlyHistoryItem,
     MonthlyForecast,
@@ -16,6 +19,9 @@ from .schemas import (
     TransactionHistory,
     TransactionSummary,
     TRANSFER_CATEGORIES,
+    BillOccurrence,
+    UpcomingBill,
+    UpcomingBills,
 )
 
 
@@ -85,16 +91,29 @@ def summarize_month(year: int, month: int) -> TransactionSummary:
     with get_connection() as connection:
         row = connection.execute(
             """
+            WITH reported_transactions AS (
+                SELECT *,
+                       CASE
+                           WHEN amount > 0 AND category = %s
+                                AND transaction_date >=
+                                    (date_trunc('month', transaction_date)
+                                     + interval '1 month' - interval '5 days')::date
+                           THEN (transaction_date + interval '1 month')::date
+                           ELSE transaction_date
+                       END AS report_date
+                FROM transactions
+            )
             SELECT COUNT(*),
                    COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0),
                    COALESCE(SUM(amount), 0)
-            FROM transactions
-            WHERE transaction_date >= %s AND transaction_date < %s
+            FROM reported_transactions
+            WHERE report_date >= %s AND report_date < %s
               AND main_category <> %s
               AND category <> ALL(%s)
             """,
             (
+                BankCategory.SALARY_PENSION_INCOME.value,
                 start_date,
                 next_month,
                 EXCLUDED_MAIN_CATEGORY,
@@ -103,19 +122,36 @@ def summarize_month(year: int, month: int) -> TransactionSummary:
         ).fetchone()
         category_rows = connection.execute(
             """
+            WITH reported_transactions AS (
+                SELECT *,
+                       CASE
+                           WHEN amount > 0 AND category = %s
+                                AND transaction_date >=
+                                    (date_trunc('month', transaction_date)
+                                     + interval '1 month' - interval '5 days')::date
+                           THEN (transaction_date + interval '1 month')::date
+                           ELSE transaction_date
+                       END AS report_date
+                FROM transactions
+            )
             SELECT main_category,
                    category,
                    COUNT(*),
                    COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0),
                    COALESCE(SUM(amount), 0)
-            FROM transactions
-            WHERE transaction_date >= %s AND transaction_date < %s
+            FROM reported_transactions
+            WHERE report_date >= %s AND report_date < %s
               AND category <> ALL(%s)
             GROUP BY main_category, category
             ORDER BY SUM(ABS(amount)) DESC, main_category, category
             """,
-            (start_date, next_month, list(TRANSFER_CATEGORIES)),
+            (
+                BankCategory.SALARY_PENSION_INCOME.value,
+                start_date,
+                next_month,
+                list(TRANSFER_CATEGORIES),
+            ),
         ).fetchall()
 
     categories = [
@@ -182,20 +218,41 @@ def get_monthly_history(from_date: date, to_date: date) -> TransactionHistory:
     with get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT date_trunc('month', transaction_date)::date,
+            WITH reported_transactions AS (
+                SELECT *,
+                       CASE
+                           WHEN amount > 0 AND category = %s
+                                AND transaction_date >=
+                                    (date_trunc('month', transaction_date)
+                                     + interval '1 month' - interval '5 days')::date
+                           THEN (transaction_date + interval '1 month')::date
+                           ELSE transaction_date
+                       END AS report_date
+                FROM transactions
+            )
+            SELECT date_trunc('month', report_date)::date,
                    main_category,
                    category,
                    COUNT(*),
                    COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0),
                    COALESCE(SUM(amount), 0)
-            FROM transactions
-            WHERE transaction_date >= %s AND transaction_date < %s
+            FROM reported_transactions
+            WHERE transaction_date >= %s - interval '5 days'
+              AND transaction_date < %s
+              AND report_date >= %s AND report_date < %s
               AND category <> ALL(%s)
             GROUP BY 1, 2, 3
             ORDER BY 1, 2, 3
             """,
-            (from_date, to_date_exclusive, list(TRANSFER_CATEGORIES)),
+            (
+                BankCategory.SALARY_PENSION_INCOME.value,
+                from_date,
+                to_date_exclusive,
+                from_date,
+                to_date_exclusive,
+                list(TRANSFER_CATEGORIES),
+            ),
         ).fetchall()
 
     rows_by_month: dict[date, list[tuple]] = {}
@@ -315,22 +372,44 @@ def forecast_monthly(
         - history_from.month
         + 1
     )
+    income_history_from = (
+        date(history_from.year + 1, 1, 1)
+        if history_from.month == 12
+        else date(history_from.year, history_from.month + 1, 1)
+    )
+    # The first history month may be missing payroll shifted from the prior month.
+    # It is excluded from the income average; absent income in any later month
+    # still counts as zero because the denominator is the number of eligible months.
+    income_months_used = max(months_used - 1, 0)
     with get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT main_category,
-                   category,
-                   COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0),
-                   COALESCE(SUM(amount), 0)
-            FROM transactions
-            WHERE transaction_date >= %s AND transaction_date < %s
+            WITH reported_transactions AS (
+                SELECT *,
+                       CASE
+                           WHEN amount > 0 AND category = %s
+                                AND transaction_date >=
+                                    (date_trunc('month', transaction_date)
+                                     + interval '1 month' - interval '5 days')::date
+                           THEN (transaction_date + interval '1 month')::date
+                           ELSE transaction_date
+                       END AS report_date
+                FROM transactions
+            )
+            SELECT transaction_date, merchant, main_category, category, amount,
+                   report_date
+            FROM reported_transactions
+            WHERE transaction_date >= %s - interval '5 days'
+              AND transaction_date < %s
+              AND report_date >= %s AND report_date < %s
               AND main_category <> %s
               AND category <> ALL(%s)
-            GROUP BY main_category, category
-            ORDER BY main_category, category
+            ORDER BY main_category, category, transaction_date
             """,
             (
+                BankCategory.SALARY_PENSION_INCOME.value,
+                history_from,
+                history_to + timedelta(days=1),
                 history_from,
                 history_to + timedelta(days=1),
                 EXCLUDED_MAIN_CATEGORY,
@@ -343,15 +422,103 @@ def forecast_monthly(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
 
+    grouped_transactions: dict[tuple[str, str], list[tuple]] = {}
+    for row in rows:
+        grouped_transactions.setdefault((row[2], row[3]), []).append(row)
+
+    # Sparse subcategories (for example, a single car purchase in
+    # "Transport (Andet)") need the broader main-category history as context.
+    main_category_expenses: dict[str, list[Decimal]] = {}
+    for (main_category, _), transactions in grouped_transactions.items():
+        main_category_expenses.setdefault(main_category, []).extend(
+            abs(row[4]) for row in transactions if row[4] < 0
+        )
+
+    excluded_one_off_expenses: list[ForecastExcludedExpense] = []
+    category_totals: list[tuple[str, str, Decimal, Decimal]] = []
+    for (main_category, category), transactions in grouped_transactions.items():
+        expense_rows = [row for row in transactions if row[4] < 0]
+        expense_values = [abs(row[4]) for row in expense_rows]
+        excluded_ids: set[int] = set()
+        threshold: Decimal | None = None
+        baseline_values = (
+            expense_values
+            if len(expense_values) >= 5
+            else main_category_expenses.get(main_category, [])
+        )
+        if len(baseline_values) >= 5:
+            typical = median(baseline_values)
+            deviations = [abs(value - typical) for value in baseline_values]
+            mad = median(deviations)
+            threshold = max(
+                typical * Decimal("5"),
+                typical + Decimal("10000"),
+                typical + mad * Decimal("4.4478"),
+            )
+            for row in expense_rows:
+                expense_amount = abs(row[4])
+                if expense_amount > threshold:
+                    excluded_ids.add(id(row))
+                    excluded_one_off_expenses.append(
+                        ForecastExcludedExpense(
+                            date=row[0],
+                            merchant=row[1],
+                            main_category=main_category,
+                            category=category,
+                            amount=expense_amount,
+                            threshold=threshold.quantize(
+                                Decimal("0.01"), rounding=ROUND_HALF_UP
+                            ),
+                        )
+                    )
+
+        expense_total = sum(
+            (
+                abs(row[4])
+                for row in expense_rows
+                if id(row) not in excluded_ids
+            ),
+            Decimal("0"),
+        )
+        income_by_report_month: dict[tuple[int, int], Decimal] = {}
+        if category in {
+            BankCategory.SALARY_PENSION_INCOME.value,
+            BankCategory.PUBLIC_BENEFITS.value,
+        }:
+            for row in transactions:
+                if row[4] <= 0 or row[5] < income_history_from:
+                    continue
+                report_month = (row[5].year, row[5].month)
+                income_by_report_month[report_month] = (
+                    income_by_report_month.get(report_month, Decimal("0")) + row[4]
+                )
+        income_total = sum(income_by_report_month.values(), Decimal("0"))
+        if expense_total or income_total:
+            category_totals.append(
+                (main_category, category, expense_total, income_total)
+            )
+
+    excluded_one_off_expenses.sort(key=lambda item: item.amount, reverse=True)
     categories = [
         ForecastCategory(
-            main_category=row[0],
-            category=row[1],
-            expense_forecast=monthly_average(row[2]),
-            income_forecast=monthly_average(row[3]),
-            net_forecast=monthly_average(row[4]),
+            main_category=main_category,
+            category=category,
+            expense_forecast=monthly_average(expense_total),
+            income_forecast=(
+                income_total / Decimal(income_months_used)
+                if income_months_used
+                else Decimal("0")
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            net_forecast=(
+                (
+                    income_total / Decimal(income_months_used)
+                    if income_months_used
+                    else Decimal("0")
+                )
+                - (expense_total / Decimal(months_used))
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
         )
-        for row in rows
+        for main_category, category, expense_total, income_total in category_totals
     ]
     parent_totals: dict[str, dict] = {}
     for category in categories:
@@ -386,6 +553,7 @@ def forecast_monthly(
         history_from=history_from,
         history_to=history_to,
         months_used=months_used,
+        income_months_used=income_months_used,
         expense_forecast=sum(
             (item.expense_forecast for item in main_categories), Decimal("0")
         ),
@@ -396,6 +564,98 @@ def forecast_monthly(
             (item.net_forecast for item in main_categories), Decimal("0")
         ),
         main_categories=main_categories,
+        excluded_one_off_expenses=excluded_one_off_expenses,
+    )
+
+
+def find_upcoming_bills(as_of: date, days_ahead: int) -> UpcomingBills:
+    """Estimate monthly recurring expenses from recent transactions."""
+    history_start = as_of - timedelta(days=365)
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT account_ref, account_name, merchant, transaction_date,
+                   amount, main_category, category
+            FROM transactions
+            WHERE transaction_date >= %s AND transaction_date <= %s
+              AND amount < 0
+              AND main_category <> %s
+              AND category <> ALL(%s)
+            ORDER BY transaction_date
+            """,
+            (
+                history_start,
+                as_of,
+                EXCLUDED_MAIN_CATEGORY,
+                list(TRANSFER_CATEGORIES),
+            ),
+        ).fetchall()
+
+    grouped: dict[tuple[str, str], list[tuple]] = {}
+    for row in rows:
+        account_key = row[0] or row[1] or "ukendt konto"
+        merchant_key = " ".join(row[2].casefold().split())
+        grouped.setdefault((account_key, merchant_key), []).append(row)
+
+    horizon = as_of + timedelta(days=days_ahead)
+    previous_month_end = date(as_of.year, as_of.month, 1) - timedelta(days=1)
+    freshness_start = date(previous_month_end.year, previous_month_end.month, 1)
+    bills: list[UpcomingBill] = []
+    for occurrences in grouped.values():
+        occurrences.sort(key=lambda item: item[3])
+        if len(occurrences) < 3:
+            continue
+        # Drop stale series if no payment appeared last month or this month.
+        if occurrences[-1][3] < freshness_start:
+            continue
+
+        recent = occurrences[-4:]
+        intervals = [
+            (later[3] - earlier[3]).days
+            for earlier, later in zip(recent, recent[1:])
+        ]
+        if not all(25 <= interval <= 35 for interval in intervals):
+            continue
+
+        average_interval = round(sum(intervals) / len(intervals))
+        latest = occurrences[-1]
+        expected_date = latest[3] + timedelta(days=average_interval)
+        while expected_date <= as_of:
+            expected_date += timedelta(days=average_interval)
+        if expected_date > horizon:
+            continue
+
+        amount_samples = recent[-3:]
+        estimated_amount = (
+            sum((abs(item[4]) for item in amount_samples), Decimal("0"))
+            / Decimal(len(amount_samples))
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        bills.append(
+            UpcomingBill(
+                merchant=latest[2],
+                account_name=latest[1],
+                main_category=latest[5],
+                category=latest[6],
+                expected_date=expected_date,
+                estimated_amount=estimated_amount,
+                occurrences=len(recent),
+                average_interval_days=average_interval,
+                recent_occurrences=[
+                    BillOccurrence(date=item[3], amount=abs(item[4]))
+                    for item in recent
+                ],
+            )
+        )
+
+    bills.sort(key=lambda bill: (bill.expected_date, bill.merchant.casefold()))
+    estimated_total = sum(
+        (bill.estimated_amount for bill in bills), Decimal("0")
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return UpcomingBills(
+        as_of=as_of,
+        days_ahead=days_ahead,
+        estimated_total=estimated_total,
+        bills=bills,
     )
 
 

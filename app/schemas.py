@@ -15,9 +15,11 @@ class BankCategory(str, Enum):
     FURNITURE_HOME_ACCESSORIES = "Møbler og boligtilbehør"
     ELECTRICITY = "El"
     HOUSE_GARDEN_SERVICES = "Hus- og haveservice"
+    HOUSING_OTHER = "Bolig (Andet)"
     GROCERIES = "Dagligvarer"
     TAKEAWAY_FAST_FOOD = "Take away og fast food"
     SPECIALTY_SHOP = "Specialbutik"
+    FOOD_OTHER = "Mad og indkøb (Andet)"
     UNION_UNEMPLOYMENT_INSURANCE = "Fagforening, A-kasse og lønsikring"
     ACCIDENT_HEALTH_INSURANCE = "Ulykkes- og sundhedsforsikring"
     INSURANCE_OTHER = "Forsikringer (Andet)"
@@ -46,6 +48,7 @@ class BankCategory(str, Enum):
     INTEREST_ORGANIZATIONS = "Interesseorganisationer"
     GAMES_TOYS = "Spil og legetøj"
     SAVINGS = "Opsparing"
+    CHILD_SAVINGS = "Børneopsparing"
     CLOTHING_SHOES_ACCESSORIES = "Tøj, sko og accessories"
     HAIR_SKINCARE = "Hår- og hudpleje"
     DENTIST_DOCTOR_MEDICINE = "Tandlæge, læge og medicin"
@@ -56,6 +59,7 @@ class BankCategory(str, Enum):
     SALARY_PENSION_INCOME = "Løn, dagpenge og pension"
     PUBLIC_BENEFITS = "Offentlige ydelser"
     INCOME_OTHER = "Indtægter (Andet)"
+    INTEREST_RETURNS = "Renter og afkast"
     PHONE_INTERNET_STREAMING_TV = "Telefon, internet, streaming og TV"
     FILM_MUSIC_APPS_SOFTWARE = "Film, musik, apps og software"
     NEWSPAPERS_MAGAZINES_BOOKS = "Aviser, blade og bøger"
@@ -84,9 +88,11 @@ CATEGORY_PARENTS: dict[BankCategory, str] = {
     BankCategory.FURNITURE_HOME_ACCESSORIES: "Bolig",
     BankCategory.ELECTRICITY: "Bolig",
     BankCategory.HOUSE_GARDEN_SERVICES: "Bolig",
+    BankCategory.HOUSING_OTHER: "Bolig",
     BankCategory.GROCERIES: "Mad og indkøb",
     BankCategory.TAKEAWAY_FAST_FOOD: "Mad og indkøb",
     BankCategory.SPECIALTY_SHOP: "Mad og indkøb",
+    BankCategory.FOOD_OTHER: "Mad og indkøb",
     BankCategory.UNION_UNEMPLOYMENT_INSURANCE: "Forsikringer",
     BankCategory.ACCIDENT_HEALTH_INSURANCE: "Forsikringer",
     BankCategory.INSURANCE_OTHER: "Forsikringer",
@@ -115,6 +121,7 @@ CATEGORY_PARENTS: dict[BankCategory, str] = {
     BankCategory.INTEREST_ORGANIZATIONS: "Fritid",
     BankCategory.GAMES_TOYS: "Fritid",
     BankCategory.SAVINGS: "Opsparing og investering",
+    BankCategory.CHILD_SAVINGS: "Opsparing og investering",
     BankCategory.CLOTHING_SHOES_ACCESSORIES: "Sko, tøj og personlig pleje",
     BankCategory.HAIR_SKINCARE: "Sko, tøj og personlig pleje",
     BankCategory.DENTIST_DOCTOR_MEDICINE: "Sko, tøj og personlig pleje",
@@ -125,6 +132,7 @@ CATEGORY_PARENTS: dict[BankCategory, str] = {
     BankCategory.SALARY_PENSION_INCOME: "Indtægter",
     BankCategory.PUBLIC_BENEFITS: "Indtægter",
     BankCategory.INCOME_OTHER: "Indtægter",
+    BankCategory.INTEREST_RETURNS: "Indtægter",
     BankCategory.PHONE_INTERNET_STREAMING_TV: "Medier",
     BankCategory.FILM_MUSIC_APPS_SOFTWARE: "Medier",
     BankCategory.NEWSPAPERS_MAGAZINES_BOOKS: "Medier",
@@ -223,6 +231,30 @@ class TransactionHistory(BaseModel):
     months: list[MonthlyHistoryItem]
 
 
+class BillOccurrence(BaseModel):
+    date: Date
+    amount: Decimal
+
+
+class UpcomingBill(BaseModel):
+    merchant: str
+    account_name: str | None
+    main_category: str
+    category: str
+    expected_date: Date
+    estimated_amount: Decimal
+    occurrences: int
+    average_interval_days: int
+    recent_occurrences: list[BillOccurrence]
+
+
+class UpcomingBills(BaseModel):
+    as_of: Date
+    days_ahead: int
+    estimated_total: Decimal
+    bills: list[UpcomingBill]
+
+
 class ForecastCategory(BaseModel):
     main_category: str
     category: str
@@ -239,13 +271,24 @@ class ForecastMainCategory(BaseModel):
     subcategories: list[ForecastCategory]
 
 
+class ForecastExcludedExpense(BaseModel):
+    date: Date
+    merchant: str
+    main_category: str
+    category: str
+    amount: Decimal
+    threshold: Decimal
+
+
 class MonthlyForecast(BaseModel):
     forecast_year: int
     forecast_month: int
     history_from: Date
     history_to: Date
     months_used: int
+    income_months_used: int
     expense_forecast: Decimal
     income_forecast: Decimal
     net_forecast: Decimal
     main_categories: list[ForecastMainCategory]
+    excluded_one_off_expenses: list[ForecastExcludedExpense]
